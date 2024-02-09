@@ -1,0 +1,17 @@
+fun sayHi(first, last) {
+  if (first == "Dear") {
+    return "Bye, " + first;
+  }
+  return "Hi, " + first + " " + last + "!";
+}
+
+print sayHi("Dear", "Reader");
+
+fun fib(n) {
+  if (n <= 1) return n;
+  return fib(n - 2) + fib(n - 1);
+}
+
+for (var i = 0; i < 20; i = i + 1) {
+  print fib(i);
+}
