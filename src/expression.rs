@@ -1,7 +1,4 @@
-use crate::{
-    interpreter::{Interpreter, Value},
-    token::*,
-};
+use crate::token::*;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
@@ -11,7 +8,8 @@ pub enum Expr {
     Assign(Token, Box<Expr>),
     Logical(Box<Expr>, Token, Box<Expr>),
     Call(Box<Expr>, Token, Vec<Expr>),
-    // Get(Box<Expr>, String),
+    Get(Box<Expr>, Token),
+    Set(Box<Expr>, Token, Box<Expr>),
     Variable(Token),
     Literal(Literal),
     // This,
@@ -28,7 +26,8 @@ impl std::fmt::Display for Expr {
             Expr::Assign(l, r) => write!(f, "{l} = {r}"),
             Expr::Logical(l, op, r) => write!(f, "({l} {op} {r}"),
             Expr::Call(c, _, args) => write!(f, "{c}({})", itertools::join(args, ", ")),
-            // Expr::Get(from, name) => write!(f, "{from}.{name}"),
+            Expr::Get(from, name) => write!(f, "{from}.{name}"),
+            Expr::Set(get, name, value) => write!(f, "{get}.{name} = {value}"),
             Expr::Unary(op, r) => write!(f, "({op}{r})"),
             // Expr::This => write!(f, "this"),
             // Expr::Super => write!(f, "super"),
@@ -37,7 +36,7 @@ impl std::fmt::Display for Expr {
 }
 
 impl Expr {
-    pub fn accept(&self, visitor: &mut Interpreter) -> Value {
+    pub fn accept<T>(&self, visitor: &mut dyn ExprVisitor<T>) -> T {
         match self {
             Expr::Grouping(g) => visitor.visit_grouping_expr(g.clone()),
             Expr::Literal(l) => visitor.visit_literal_expr(l.clone()),
@@ -46,7 +45,15 @@ impl Expr {
             Expr::Variable(t) => visitor.visit_var_expr(t.clone()),
             Expr::Assign(l, r) => visitor.visit_assign_expr(l.clone(), r.clone()),
             Expr::Logical(l, op, r) => visitor.visit_logical_expr(l.clone(), op.clone(), r.clone()),
-            Expr::Call(c, paren, args) => visitor.visit_call_expr(c.clone(), paren.clone(), args.clone()),
+            Expr::Call(c, paren, args) => {
+                visitor.visit_call_expr(c.clone(), paren.clone(), args.clone())
+            }
+            Expr::Get(ex, name) => {
+                visitor.visit_get_expr(ex.clone(), name.clone()).unwrap()
+            }
+            Expr::Set(get, name, value) => {
+                visitor.visit_set_expr(get.clone(), name.clone(), value.clone()).unwrap()
+            }
         }
     }
     pub fn assign(lvalue: Token, rvalue: Expr) -> Self {
@@ -80,6 +87,14 @@ impl Expr {
     pub fn call(callee: Expr, paren: Token, args: Vec<Expr>) -> Self {
         Self::Call(Box::new(callee), paren, args)
     }
+
+    pub fn get(expr: Expr, name: Token) -> Self {
+        Self::Get(Box::new(expr), name)
+    }
+
+    pub fn set(get: Expr, name: Token, value: Expr) -> Self {
+        Self::Set(Box::new(get), name, Box::new(value))
+    }
 }
 
 pub trait ExprVisitor<T> {
@@ -91,4 +106,6 @@ pub trait ExprVisitor<T> {
     fn visit_assign_expr(&mut self, name: Token, value: Box<Expr>) -> T;
     fn visit_logical_expr(&mut self, l: Box<Expr>, op: Token, r: Box<Expr>) -> T;
     fn visit_call_expr(&mut self, c: Box<Expr>, paren: Token, args: Vec<Expr>) -> T;
+    fn visit_get_expr(&mut self, expr: Box<Expr>, name: Token) -> Result<T, String>;
+    fn visit_set_expr(&mut self, get: Box<Expr>, name: Token, value: Box<Expr>) -> Result<T, String>;
 }

@@ -211,9 +211,11 @@ impl Parser {
 
         if self.match_token(vec![TokenType::Equal]) {
             let equals = self.previous().clone();
-            let value = self.assignment()?;
+            let value: Expr = self.assignment()?;
             if let Expr::Variable(token) = expr {
                 return Ok(Expr::assign(token, value));
+            } else if let Expr::Get(get, name) = expr {
+                return Ok(Expr::set(*get, name, value));
             }
             return Err(format!("Invalid assignment target. {}", equals));
         }
@@ -246,7 +248,13 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Option<Stmt> {
-        if self.match_token(vec![TokenType::Fun]) {
+        if self.match_token(vec![TokenType::Class]) {
+            if let Ok(stmt) = self.class_declaration() {
+                Some(stmt)
+            } else {
+                None
+            }
+        } else if self.match_token(vec![TokenType::Fun]) {
             if let Ok(f) = self.function("function".to_owned()) {
                 Some(f)
             } else {
@@ -265,6 +273,22 @@ impl Parser {
             self.synchronize();
             None
         }
+    }
+
+    fn class_declaration(&self) -> Result<Stmt, String> {
+        let name = self.consume(TokenType::Identifier, "Expect class name.")?;
+        self.consume(TokenType::LeftBrace, "Expect '{' before class body.")?;
+
+        let mut methods = Vec::new();
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            if let Ok(stmt) = self.function("method".to_owned()) {
+                methods.push(stmt);
+            }
+        }
+
+        self.consume(TokenType::RightBrace, "Expect '}' after class body.");
+
+        Ok(Stmt::Class(name, methods))
     }
 
     fn equality(&mut self) -> Result<Expr, String> {
@@ -336,6 +360,9 @@ impl Parser {
         loop {
             if self.match_token(vec![TokenType::LeftParen]) {
                 expr = self.finish_call(expr);
+            } else if self.match_token(vec![TokenType::Dot]) {
+                let name = self.consume(TokenType::Identifier, "Expect property name after '.'.")?;
+                expr = Expr::get(expr, name);
             } else {
                 break;
             }

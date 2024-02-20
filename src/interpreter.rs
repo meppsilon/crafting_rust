@@ -1,20 +1,24 @@
 use crate::environment::Environment;
 use crate::expression::{Expr, ExprVisitor};
 use crate::function::Function;
+use crate::lox_class::{LoxClass, LoxInstance};
 use crate::returns::Return;
 use crate::statement::{Stmt, StmtVisitor};
 use crate::token::{Literal, Token, TokenType};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     None,
     Boolean(bool),
     Number(f64),
     String(String),
     Callable(Function),
+    Class(LoxClass),
+    Instance(LoxInstance),
 }
 
 impl std::fmt::Display for Value {
@@ -25,6 +29,22 @@ impl std::fmt::Display for Value {
             Self::Boolean(b) => write!(f, "{}", b),
             Self::None => write!(f, "none"),
             Self::Callable(_) => write!(f, "function"),
+            Self::Class(_) => write!(f, "class"),
+            Self::Instance(_) => write!(f, "instance"),
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::None, Value::None) => true,
+            (_, Value::None) => false,
+            (Value::None, _) => false,
+            (Value::Boolean(left), Value::Boolean(right)) => left == right,
+            (Value::Number(left), Value::Number(right)) => left == right,
+            (Value::String(left), Value::String(right)) => left.eq(right),
+            _ => false, // TODO: this should be defined or all.
         }
     }
 }
@@ -32,6 +52,7 @@ impl std::fmt::Display for Value {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Interpreter {
     environment: Rc<RefCell<Environment>>,
+    // locals: HashMap<Expr, usize>,
     pub globals: Environment,
 }
 
@@ -65,6 +86,33 @@ impl Interpreter {
 
     fn evaluate(&mut self, expr: Expr) -> Value {
         expr.accept(self)
+    }
+
+    fn execute(&mut self, stmt: Stmt) -> Result<(), Return> {
+        stmt.accept(self)?;
+        Ok(())
+    }
+
+    // fn resolve(&mut self, expr: Expr, depth: int) {
+    //     self.locals.put
+    // }
+
+    pub fn execute_block(
+        &mut self,
+        statements: Vec<Stmt>,
+        environment: Rc<RefCell<Environment>>,
+    ) -> Result<(), Return> {
+        let previous = self.environment.clone();
+        let steps = || -> Result<(), Return> {
+            self.environment = environment;
+            for statement in statements {
+                self.execute(statement)?
+            }
+            Ok(())
+        };
+        let result = steps();
+        self.environment = previous;
+        result
     }
 }
 
@@ -187,7 +235,10 @@ impl ExprVisitor<Value> for Interpreter {
 
     fn visit_assign_expr(&mut self, name: Token, value: Box<Expr>) -> Value {
         let value = self.evaluate(*value);
-        self.environment.borrow_mut().assign(name, value.clone()).unwrap();
+        self.environment
+            .borrow_mut()
+            .assign(name, value.clone())
+            .unwrap();
         value
     }
 
@@ -217,38 +268,41 @@ impl ExprVisitor<Value> for Interpreter {
                     Value::None
                 }
             }
+            Value::Class(class) => {
+                let args_size = args.len();
+                let instance = LoxInstance { klass: class, fields: HashMap::new() };
+                Value::None
+            }
             _ => {
                 crate::error_at_token(&paren, "Can only call functions and classes.");
                 Value::None
             }
         }
     }
+
+    fn visit_get_expr(&mut self, expr: Box<Expr>, name: Token) -> Result<Value, String> {
+        let value = self.evaluate(*expr);
+        if let Value::Instance(instance) = value {
+            Ok(instance.get(name))
+        } else {
+            Err("Only instances have properties".to_string())
+        }
+    }
+
+    fn visit_set_expr(&mut self, object: Box<Expr>, name: Token, value: Box<Expr>) -> Result<Value, String> {
+        let object_value = self.evaluate(*object);
+
+        if let Value::Instance(mut instance) = object_value {
+            let value_value = self.evaluate(*value);
+            instance.set(name, value_value);
+            Ok(value_value)
+        } else {
+            Err("Only instances have fields.".to_string())
+        }
+    }
 }
 
 impl StmtVisitor<()> for Interpreter {
-    fn execute(&mut self, stmt: Stmt) -> Result<(), Return> {
-        stmt.accept(self)?;
-        Ok(())
-    }
-
-    fn execute_block(
-        &mut self,
-        statements: Vec<Stmt>,
-        environment: Rc<RefCell<Environment>>,
-    ) -> Result<(), Return> {
-        let previous = self.environment.clone();
-        let steps = || -> Result<(), Return> {
-            self.environment = environment;
-            for statement in statements {
-                self.execute(statement)?
-            }
-            Ok(())
-        };
-        let result = steps();
-        self.environment = previous;
-        result
-    }
-
     fn visit_expression_stmt(&mut self, stmt: Expr) -> Result<(), Return> {
         self.evaluate(stmt);
         Ok(())
@@ -310,8 +364,24 @@ impl StmtVisitor<()> for Interpreter {
         body: Vec<Stmt>,
     ) -> Result<(), Return> {
         let key = name.lexeme.clone();
-        let function = Value::Callable(Function::User { body, params, name, enclosing: Rc::clone(&self.environment) });
+        let function = Value::Callable(Function::User {
+            body,
+            params,
+            name,
+            enclosing: Rc::clone(&self.environment),
+        });
         self.environment.borrow_mut().define(key, function);
+        Ok(())
+    }
+
+    fn visit_class_stmt(&self, name: Token, methods: Vec<Stmt>) -> Result<(), Return> {
+        self.environment
+            .borrow_mut()
+            .define(name.lexeme, Value::None);
+        let klass = LoxClass { name: name.lexeme };
+        self.environment
+            .borrow_mut()
+            .assign(name, Value::Class(klass));
         Ok(())
     }
 }

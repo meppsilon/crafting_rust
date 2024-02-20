@@ -7,6 +7,8 @@ mod statement;
 mod token;
 mod function;
 mod returns;
+mod resolver;
+mod lox_class;
 
 use interpreter::Interpreter;
 

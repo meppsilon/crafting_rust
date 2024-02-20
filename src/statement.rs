@@ -15,6 +15,7 @@ pub enum Stmt {
     While(Expr, Box<Stmt>),
     Function(Token, Vec<Token>, Vec<Stmt>),
     Return(Token, Option<Expr>),
+    Class(Token, Vec<Stmt>),
 }
 
 impl Stmt {
@@ -36,17 +37,15 @@ impl Stmt {
             Self::Return(keyword, value) => {
                 visitor.visit_return_stmt(keyword.clone(), value.clone())
             }
+            Self::Class(name, methods) => {
+                // visitor.visit_
+                Ok(())
+            }
         }
     }
 }
 
 pub trait StmtVisitor<T> {
-    fn execute(&mut self, stmt: Stmt) -> Result<(), Return>;
-    fn execute_block(
-        &mut self,
-        statements: Vec<Stmt>,
-        environment: Rc<RefCell<Environment>>,
-    ) -> Result<(), Return>;
     fn visit_expression_stmt(&mut self, stmt: Expr) -> Result<(), Return>;
     fn visit_print_stmt(&mut self, stmt: Expr) -> Result<(), Return>;
     fn visit_var_stmt(&mut self, name: Token, initializer: Option<Expr>) -> Result<(), Return>;
@@ -65,4 +64,5 @@ pub trait StmtVisitor<T> {
         body: Vec<Stmt>,
     ) -> Result<(), Return>;
     fn visit_return_stmt(&mut self, keyword: Token, value: Option<Expr>) -> Result<(), Return>;
+    fn visit_class_stmt(&self, name: Token, methods: Vec<Stmt>) -> Result<(), Return>;
 }
